@@ -141,7 +141,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model_chem = model_chem.to(device)
 '''
 # Load a pretrained ChemBERTa model and tokenizer for SMILES embeddings
-model_path = "/root/Software/GraphBAN/case_study/ChemBERTa-77M-MTR"
+model_path = "/root/Database/ChemBERTa-77M-MTR"
 model_chem = RobertaModel.from_pretrained(model_path,num_labels=2, add_pooling_layer=True).to(device)
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 

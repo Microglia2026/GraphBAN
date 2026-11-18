@@ -85,7 +85,10 @@ class Trainer(object):
     def train(self):
         float2str = lambda x: '%0.4f' % x
         
-        auroc, auprc, f1, sensitivity, specificity, accuracy, test_loss, thred_optim, precision,cm1,y_pred,thred_optim, cm  = self.test(dataloader="test")
+        test_result = self.test(dataloader="test")
+        if isinstance(test_result, list):
+            return test_result
+        auroc, auprc, f1, sensitivity, specificity, accuracy, test_loss, thred_optim, precision,cm1,y_pred,thred_optim, cm  = test_result
         print('Test at Best Model of Epoch ' + str(self.best_epoch) + ' with test loss ' + str(test_loss), " AUROC "
               + str(auroc) + " AUPRC " + str(auprc) + " f1-score " + str(f1)+ " Sensitivity " + str(sensitivity) + " Specificity " +
               str(specificity) + " Accuracy " + str(accuracy) + " Thred_optim " + str(thred_optim))
@@ -136,14 +139,24 @@ class Trainer(object):
         else:
             raise ValueError(f"Error key value {dataloader}")
         num_batches = len(data_loader)
+        has_labels = None
         with torch.no_grad():
             self.model.eval()
-            for i, (v_d, sm, v_p,esm, labels) in enumerate(data_loader):
-                sm = torch.tensor(sm ,dtype=torch.float32)
+            for batch in data_loader:
+                if len(batch) == 5:
+                    v_d, sm, v_p, esm, labels = batch
+                    has_labels = True
+                else:
+                    v_d, sm, v_p, esm = batch
+                    labels = None
+                    has_labels = False
+                sm = sm.to(dtype=torch.float32)
                 sm = torch.reshape(sm,(sm.shape[0],1,384))
-                esm = torch.tensor(esm ,dtype=torch.float32)
-                esm = torch.reshape(esm,(sm.shape[0],1,1280))
-                v_d, sm,  v_p, esm, labels = v_d.to(self.device),sm.to(self.device), v_p.to(self.device), esm.to(self.device), labels.float().to(self.device)
+                esm = esm.to(dtype=torch.float32)
+                esm = torch.reshape(esm,(esm.shape[0],1,1280))
+                v_d, sm, v_p, esm = v_d.to(self.device), sm.to(self.device), v_p.to(self.device), esm.to(self.device)
+                if labels is not None:
+                    labels = labels.float().to(self.device)
                 device = self.device
                 
               
@@ -153,14 +166,22 @@ class Trainer(object):
                     #test_drug_features.append(v_d)
                     #test_protein_features.append(v_p)
                 if self.n_class == 1:
-                    weights = torch.tensor([0.3 if label == 1 else 0.7 for label in labels])
-                    weights = weights.to(self.device)
-                    n, loss = binary_cross_entropy(score, labels)
+                    if labels is not None:
+                        n, loss = binary_cross_entropy(score, labels)
+                    else:
+                        n = torch.sigmoid(score).squeeze(1)
                 else:
-                    n, loss = cross_entropy_logits(score, labels)
-                test_loss += loss.item()
-                y_label = y_label + labels.to("cpu").tolist()
+                    if labels is not None:
+                        n, loss = cross_entropy_logits(score, labels)
+                    else:
+                        n = torch.softmax(score, dim=1)[:, 1]
+                if labels is not None:
+                    test_loss += loss.item()
+                    y_label = y_label + labels.to("cpu").tolist()
                 y_pred = y_pred + n.to("cpu").tolist()
+        if has_labels is False:
+            return y_pred
+
         auroc = roc_auc_score(y_label, y_pred)
         auprc = average_precision_score(y_label, y_pred)
         test_loss = test_loss / num_batches

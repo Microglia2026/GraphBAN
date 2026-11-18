@@ -49,6 +49,10 @@ def set_seed(seed=1000):
 
 
 def graph_collate_func(x):
+    if len(x[0]) == 4:
+        d, smile, p, esm = zip(*x)
+        d = dgl.batch(d)
+        return d, torch.tensor(np.array(smile)), torch.tensor(np.array(p)), torch.tensor(np.array(esm))
     d,smile, p, esm, y = zip(*x)
     d = dgl.batch(d)
     return d, torch.tensor(np.array(smile)), torch.tensor(np.array(p)), torch.tensor(np.array(esm)), torch.tensor(y)

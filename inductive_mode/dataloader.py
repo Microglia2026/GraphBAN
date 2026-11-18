@@ -38,15 +38,12 @@ class DTIDataset(data.Dataset):
 
         v_p = self.df.iloc[index]['Protein']
         v_p = integer_label_protein(v_p)
-        y =   self.df.iloc[index]["Y"]
         fcfps = self.df.iloc[index]["fcfp"]
         esm = self.df.iloc[index]["esm"]
-        #fcfps = self.fcfps
-        # y = torch.Tensor([y])
-        #smiles2 = self.df.iloc[index]['SMILES']
-        #smiles2 = list(smiles2)
-        #smiles2 = self.fcfp(smiles2)
-        return v_d, fcfps, v_p,esm, y
+        sample = (v_d, fcfps, v_p, esm)
+        if "Y" in self.df.columns:
+            return (*sample, self.df.iloc[index]["Y"])
+        return sample
 
 class DTIDataset2(data.Dataset):
     def __init__(self, list_IDs, df, max_drug_nodes=290):

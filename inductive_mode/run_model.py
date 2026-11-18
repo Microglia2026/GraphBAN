@@ -1,3 +1,9 @@
+import os
+import sys
+
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+sys.path.insert(0, r"/root/Software/GraphBAN/inductive_mode")
+
 import torch.nn as nn
 import argparse
 import torch
@@ -21,7 +27,6 @@ import copy
 from rdkit.Chem import AllChem
 import math
 from dgllife.model.gnn import GCN
-from torch.nn.utils.weight_norm import weight_norm
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description="Load train, val, test datasets and additional parameters.")
@@ -53,15 +58,21 @@ print("Mode: ", args.mode)
 df_test['Protein'] = df_test['Protein'].apply(lambda x: x[:1022] if len(x) > 1022 else x)
 df_train['Protein'] = df_train['Protein'].apply(lambda x: x[:1022] if len(x) > 1022 else x)
 df_val['Protein'] = df_val['Protein'].apply(lambda x: x[:1022] if len(x) > 1022 else x)
-
-
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+'''
+# modified in 20261111
 esm_model, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
 batch_converter = alphabet.get_batch_converter()
-
 esm_model = esm_model.eval().to(device)
+'''
+# Load ESM model for protein embeddings
+torch.serialization.add_safe_globals([argparse.Namespace])
+esm_path = "/root/Database/esm1b_t33_650M_UR50S/esm1b_t33_650M_UR50S.pt"
+esm_model, alphabet = esm.pretrained.load_model_and_alphabet_local(esm_path)
+esm_model = esm_model.eval().to(device)
+batch_converter = alphabet.get_batch_converter()
 
 
 def Get_Protein_Feature(p_list):
@@ -131,10 +142,18 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Robe
 # Setup
 # Load a pretrained transformer model and tokenizer
 #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+'''
+# modified in 20261111
+# Load a pretrained transformer model and tokenizer
 model_name = "DeepChem/ChemBERTa-77M-MTR"
 model_chem = RobertaModel.from_pretrained(model_name, num_labels=2, add_pooling_layer=True)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model_chem = model_chem.to(device)
+'''
+# Load a pretrained ChemBERTa model and tokenizer for SMILES embeddings
+model_path = "/root/Database/ChemBERTa-77M-MTR"
+model_chem = RobertaModel.from_pretrained(model_path,num_labels=2, add_pooling_layer=True).to(device)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 def get_embeddings(df):
     emblist = []
@@ -182,9 +201,9 @@ print('chemBERTa feature extraction: pass\n')
 # If you want to change the settings such as number of epochs for teh GraphBANs main model change it through GraphBAN_Demo.yaml.
 # If you want to run the model for transductive analysis, use GraphBAN_None_DA.yaml
 if args.mode == 'inductive':
-    cfg_path = "inductive_mode/GraphBAN_DA.yaml"
+    cfg_path = "/root/Software/GraphBAN/inductive_mode/GraphBAN_DA.yaml"
 else:
-    cfg_path = "inductive_mode/GraphBAN.yaml"
+    cfg_path = "/root/Software/GraphBAN/inductive_mode/GraphBAN.yaml"
 
 
 cfg = get_cfg_defaults()
@@ -248,17 +267,18 @@ else:
         opt = torch.optim.Adam(modelG.parameters(), lr=cfg.SOLVER.LR)
 torch.backends.cudnn.benchmark = True
 
-if not cfg.DA.USE:
+pp = args.result_path
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+try:
+    if cfg.DA.USE:
+        multi_generator = MultiDataLoader(dataloaders=[source_generator, target_generator], n_batches=n_batches)
+        trainer = Trainer(modelG, opt, device, multi_generator, val_generator, test_generator, pp,
+                          opt_da=opt_da, discriminator=domain_dmm, experiment=None, **cfg)
+    else:
+        trainer = Trainer(modelG, opt, device, training_generator, val_generator, test_generator,
+                          opt_da=None, discriminator=None, experiment=experiment, **cfg)
+    result = trainer.train()
+finally:
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
-    trainer = Trainer(modelG, opt, device, training_generator, val_generator, test_generator, opt_da=None,
-                          discriminator=None,
-                          experiment=experiment, **cfg)
-else:
-    trainer = Trainer(modelG, opt, device, multi_generator, val_generator, test_generator, opt_da=opt_da,
-                         discriminator=domain_dmm,
-                         experiment=None, **cfg)
-
-
-
-result = trainer.train()
 print('pass')

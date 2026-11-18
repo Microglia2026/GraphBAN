@@ -1,3 +1,8 @@
+import os
+import sys
+
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+sys.path.insert(0, r"/root/Software/GraphBAN/inductive_mode")
 
 import torch
 import torch.nn as nn
@@ -33,8 +38,16 @@ print('shape of your dataset:', df_test.shape)
 # Setup the device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Load ESM model for protein embeddings
+'''
+# modified in 20261111
 esm_model, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
+batch_converter = alphabet.get_batch_converter()
+esm_model = esm_model.eval().to(device)
+'''
+# Load ESM model for protein embeddings
+torch.serialization.add_safe_globals([argparse.Namespace])
+esm_path = "/root/Database/esm1b_t33_650M_UR50S/esm1b_t33_650M_UR50S.pt"
+esm_model, alphabet = esm.pretrained.load_model_and_alphabet_local(esm_path)
 esm_model = esm_model.eval().to(device)
 batch_converter = alphabet.get_batch_converter()
 
@@ -58,10 +71,18 @@ def Get_Protein_Feature(p_list):
 pro_list_test = df_test['Protein'].unique()
 df_test = pd.merge(df_test, Get_Protein_Feature(list(pro_list_test)), on='Protein', how='left')
 
-# Load a pretrained ChemBERTa model and tokenizer for SMILES embeddings
+'''
+# modified in 20261111
+# Load a pretrained transformer model and tokenizer
 model_name = "DeepChem/ChemBERTa-77M-MTR"
-model_chem = RobertaModel.from_pretrained(model_name, num_labels=2, add_pooling_layer=True).to(device)
+model_chem = RobertaModel.from_pretrained(model_name, num_labels=2, add_pooling_layer=True)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
+model_chem = model_chem.to(device)
+'''
+# Load a pretrained ChemBERTa model and tokenizer for SMILES embeddings
+model_path = "/root/Database/ChemBERTa-77M-MTR"
+model_chem = RobertaModel.from_pretrained(model_path,num_labels=2, add_pooling_layer=True).to(device)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 # Function to get ChemBERTa embeddings
 def get_embeddings(df):
@@ -75,14 +96,14 @@ def get_embeddings(df):
     return emb_list
 
 # Merge SMILES features and remove duplicate rows
-df_test_unique = df_test.drop_duplicates(subset='SMILES')
+df_test_unique = df_test.drop_duplicates(subset='SMILES').copy()
 emb_list_test = get_embeddings(df_test_unique)
 df_test_unique['fcfp'] = emb_list_test
 df_test = pd.merge(df_test, df_test_unique[['SMILES', 'fcfp']], on='SMILES', how='left')
 
 # Configurations and model setup
 cfg = get_cfg_defaults()
-cfg.merge_from_file("inductive_mode/GraphBAN_DA.yaml")
+cfg.merge_from_file("/root/Software/GraphBAN/inductive_mode/GraphBAN_DA.yaml")
 mkdir(cfg.RESULT.OUTPUT_DIR)
 cfg.freeze()
 
@@ -97,11 +118,14 @@ opt = torch.optim.Adam(modelG.parameters(), lr=cfg.SOLVER.LR)
 # Load trained model and train
 modelG.load_state_dict(torch.load(args.trained_model))
 trainer = Trainer(modelG, opt, device, test_generator, **cfg)
-result, cm1, pred = trainer.train()
+prediction_result = trainer.train()
+pred = prediction_result[2] if isinstance(prediction_result, tuple) else prediction_result
 
 # Save results
 df_test['pred'] = pred
-df_test.to_csv('inductive_mode/result/' + args.save_dir, index=False)
+df_test = df_test[['SMILES', 'Protein', 'pred']]
+# df_test.to_csv('inductive_mode/result/' + args.save_dir, index=False)
+df_test.to_csv(args.save_dir, index=False)
 
 print("\nThe prediction probabilities saved in inductive_mode/result/" + args.save_dir + '\n')
 print("The prediction scores saved in inductive_mode/result/"+"test_markdowntable_of_prediction_with_trained_model.txt")

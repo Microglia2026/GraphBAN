@@ -5,7 +5,7 @@ import numpy as np
 import math
 from dgllife.model.gnn import GCN
 from ban import BANLayer
-from torch.nn.utils.weight_norm import weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 from tqdm import tqdm
 from rdkit.Chem import AllChem
 from sklearn.preprocessing import StandardScaler
